@@ -6,6 +6,7 @@ import base64
 import numpy as np
 import cv2
 from model_handler import ModelHandler
+from agent import CatDogAgent
 
 app = Flask(__name__)
 CORS(app)  # 允许跨域请求
@@ -14,8 +15,18 @@ CORS(app)  # 允许跨域请求
 MODEL_PATH = '../models/best_cnn_model.pth'
 model_handler = ModelHandler(MODEL_PATH)
 
-print("模型加载完成，服务已启动！")
+import os
+os.environ['LLM_API_KEY'] = "完整Key"   # 你的完整Key，不要有空格和换行
 
+agent = CatDogAgent(
+    model_handler=model_handler,
+    llm_api_key=os.environ.get('LLM_API_KEY'),
+    llm_base_url="https://api.deepseek.com/v1/chat/completions"
+)
+
+key = os.environ.get('LLM_API_KEY')
+print(f"Key length: {len(key)}")
+print(f"Key characters: {[ord(c) for c in key if ord(c) > 127]}")
 
 def image_to_base64(image_np):
     """将numpy图片转为base64字符串"""
@@ -100,6 +111,44 @@ def predict_batch():
 
     return jsonify({'results': results, 'total': len(results)})
 
+
+@app.route('/api/agent/analyze', methods=['POST'])
+def agent_analyze():
+    """Agent分析接口"""
+    if 'image' not in request.files:
+        return jsonify({'error': '未找到图片文件'}), 400
+
+    file = request.files['image']
+    image = Image.open(io.BytesIO(file.read())).convert('RGB')
+
+    result = agent.analyze_image(image)
+
+    original_np = np.array(image.resize((224, 224)))
+    result['original_image'] = f'data:image/jpeg;base64,{image_to_base64(original_np)}'
+    gradcam_b64 = image_to_base64(result['gradcam_image'])
+    result['gradcam_image'] = f'data:image/jpeg;base64,{gradcam_b64}'
+
+    return jsonify(result)
+
+
+@app.route('/api/agent/chat', methods=['POST'])
+def agent_chat():
+    """Agent对话接口"""
+    data = request.get_json()
+    user_message = data.get('message', '')
+
+    if not user_message:
+        return jsonify({'error': '消息为空'}), 400
+
+    response = agent.chat(user_message)
+    return jsonify({'response': response})
+
+
+@app.route('/api/agent/reset', methods=['POST'])
+def agent_reset():
+    """重置Agent对话"""
+    agent.clear_history()
+    return jsonify({'status': 'ok', 'message': '对话已重置'})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)

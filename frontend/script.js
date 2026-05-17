@@ -16,18 +16,24 @@ const resultGrid = document.getElementById('resultGrid');
 const detailModal = document.getElementById('detailModal');
 const modalBody = document.getElementById('modalBody');
 
+// Agent相关DOM元素
+const agentSection = document.getElementById('agentSection');
+const agentMessage = document.getElementById('agentMessage');
+const chatInput = document.getElementById('chatInput');
+const sendBtn = document.getElementById('sendBtn');
+const resetChatBtn = document.getElementById('resetChatBtn');
+const llmBadge = document.getElementById('llmBadge');
+
 // 存储选择的文件
 let selectedFiles = [];
 
 // ==================== 文件上传逻辑 ====================
-// 点击上传区域
 uploadArea.addEventListener('click', () => fileInput.click());
 uploadBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     fileInput.click();
 });
 
-// 文件选择
 fileInput.addEventListener('change', (e) => {
     handleFiles(e.target.files);
 });
@@ -48,7 +54,6 @@ uploadArea.addEventListener('drop', (e) => {
     handleFiles(e.dataTransfer.files);
 });
 
-// 处理文件
 function handleFiles(files) {
     const validTypes = ['image/jpeg', 'image/png', 'image/bmp'];
     const newFiles = Array.from(files).filter(f => validTypes.includes(f.type));
@@ -62,7 +67,6 @@ function handleFiles(files) {
     renderPreview();
 }
 
-// 渲染预览
 function renderPreview() {
     if (selectedFiles.length === 0) {
         previewSection.style.display = 'none';
@@ -84,7 +88,6 @@ function renderPreview() {
             `;
             previewGrid.appendChild(div);
 
-            // 删除按钮事件
             div.querySelector('.remove-btn').addEventListener('click', (e) => {
                 e.stopPropagation();
                 selectedFiles.splice(index, 1);
@@ -95,32 +98,21 @@ function renderPreview() {
     });
 }
 
-// 清空选择
 clearBtn.addEventListener('click', () => {
     selectedFiles = [];
     fileInput.value = '';
     previewSection.style.display = 'none';
     resultSection.style.display = 'none';
+    agentSection.style.display = 'none';
 });
 
-// ==================== 发起预测请求 ====================
-analyzeBtn.addEventListener('click', async () => {
-    if (selectedFiles.length === 0) {
-        alert('请先选择图片');
-        return;
-    }
-
-    // 显示加载状态
-    loadingSection.style.display = 'block';
-    resultSection.style.display = 'none';
-
+// ==================== Agent分析 ====================
+async function analyzeWithAgent(file) {
     const formData = new FormData();
-    selectedFiles.forEach(file => {
-        formData.append('images', file);
-    });
+    formData.append('image', file);
 
     try {
-        const response = await fetch(`${API_BASE_URL}/predict_batch`, {
+        const response = await fetch(`${API_BASE_URL}/agent/analyze`, {
             method: 'POST',
             body: formData
         });
@@ -130,37 +122,43 @@ analyzeBtn.addEventListener('click', async () => {
         }
 
         const data = await response.json();
-        displayResults(data.results);
-    } catch (error) {
-        alert(`识别失败: ${error.message}`);
-        console.error('Error:', error);
-    } finally {
-        loadingSection.style.display = 'none';
-    }
-});
 
-// 单张预测（用于示例图片）
-async function predictSingle(file) {
+        // 显示Agent面板和分析报告
+        agentSection.style.display = 'block';
+        agentMessage.textContent = data.agent_response;
+
+        // 同时显示预测结果卡片
+        displayResults([{
+            prediction: data.prediction,
+            confidence: data.confidence,
+            original_image: data.original_image,
+            gradcam_image: data.gradcam_image,
+            probabilities: data.probabilities
+        }]);
+
+        // 滚动到Agent面板
+        agentSection.scrollIntoView({ behavior: 'smooth' });
+
+    } catch (error) {
+        console.error('Agent分析失败:', error);
+        agentSection.style.display = 'block';
+        agentMessage.textContent = '分析失败，请检查后端服务是否启动。';
+    }
+}
+
+analyzeBtn.addEventListener('click', async () => {
+    if (selectedFiles.length === 0) {
+        alert('请先选择图片');
+        return;
+    }
+
     loadingSection.style.display = 'block';
     resultSection.style.display = 'none';
 
-    const formData = new FormData();
-    formData.append('image', file);
+    await analyzeWithAgent(selectedFiles[0]);
 
-    try {
-        const response = await fetch(`${API_BASE_URL}/predict`, {
-            method: 'POST',
-            body: formData
-        });
-
-        const data = await response.json();
-        displayResults([data]);
-    } catch (error) {
-        alert(`识别失败: ${error.message}`);
-    } finally {
-        loadingSection.style.display = 'none';
-    }
-}
+    loadingSection.style.display = 'none';
+});
 
 // ==================== 结果展示 ====================
 function displayResults(results) {
@@ -172,7 +170,7 @@ function displayResults(results) {
             const card = document.createElement('div');
             card.className = 'result-card';
             card.innerHTML = `
-                <p style="color: var(--danger);">❌ ${result.filename}: ${result.error}</p>
+                <p style="color: var(--danger);">❌ ${result.filename || '图片'}: ${result.error}</p>
             `;
             resultGrid.appendChild(card);
             return;
@@ -201,12 +199,65 @@ function displayResults(results) {
             </div>
         `;
 
-        // 点击查看详情
         card.addEventListener('click', () => showDetail(result));
-
         resultGrid.appendChild(card);
     });
 }
+
+// ==================== Agent对话 ====================
+async function sendChatMessage() {
+    const message = chatInput.value.trim();
+    if (!message) return;
+
+    agentMessage.textContent = '思考中...';
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/agent/chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: message })
+        });
+
+        const data = await response.json();
+        agentMessage.textContent = data.response;
+        chatInput.value = '';
+
+    } catch (error) {
+        console.error('对话失败:', error);
+        agentMessage.textContent = '对话失败，请检查后端服务是否启动。';
+    }
+}
+
+async function resetChat() {
+    try {
+        await fetch(`${API_BASE_URL}/agent/reset`, { method: 'POST' });
+        agentMessage.textContent = '对话已重置。请上传新图片或提出新问题。';
+        chatInput.value = '';
+    } catch (error) {
+        console.error('重置失败:', error);
+    }
+}
+
+async function checkAgentStatus() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/health`);
+        const data = await response.json();
+
+        if (data.llm_enabled) {
+            llmBadge.textContent = 'LLM增强';
+            llmBadge.style.background = '#e6ffe6';
+            llmBadge.style.color = '#28a745';
+        }
+    } catch (error) {
+        console.warn('Agent状态检查失败');
+    }
+}
+
+sendBtn.addEventListener('click', sendChatMessage);
+chatInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') sendChatMessage();
+});
+resetChatBtn.addEventListener('click', resetChat);
 
 // ==================== 详情弹窗 ====================
 function showDetail(result) {
@@ -250,14 +301,12 @@ function showDetail(result) {
 
         <p style="margin-top: 20px; padding: 15px; background: #f0f5ff; border-radius: 8px; font-size: 0.9rem; color: #666;">
             💡 <strong>Grad-CAM 说明：</strong>红色区域表示模型做出分类决策时最关注的图像区域。
-            如果红色集中在猫/狗的耳朵、面部等关键部位，说明模型学习到了正确的特征。
         </p>
     `;
 
     detailModal.classList.add('active');
 }
 
-// 关闭弹窗
 document.querySelector('.modal-close').addEventListener('click', () => {
     detailModal.classList.remove('active');
 });
@@ -266,21 +315,6 @@ detailModal.addEventListener('click', (e) => {
     if (e.target === detailModal) {
         detailModal.classList.remove('active');
     }
-});
-
-// ==================== 示例图片 ====================
-document.querySelectorAll('.demo-card').forEach(card => {
-    card.addEventListener('click', async () => {
-        const src = card.dataset.src;
-        try {
-            const response = await fetch(src);
-            const blob = await response.blob();
-            const file = new File([blob], src, { type: 'image/jpeg' });
-            predictSingle(file);
-        } catch {
-            alert('示例图片加载失败，请上传你自己的图片试试吧');
-        }
-    });
 });
 
 // ==================== 健康检查 ====================
@@ -294,5 +328,6 @@ async function checkHealth() {
     }
 }
 
-// 页面加载时检查
+// ==================== 页面初始化 ====================
 checkHealth();
+checkAgentStatus();

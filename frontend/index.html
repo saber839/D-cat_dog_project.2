@@ -24,9 +24,7 @@
                 <p class="upload-text">拖拽图片到此处 或 点击上传</p>
                 <p class="upload-hint">支持 JPG、PNG、BMP 格式，单张或多张均可</p>
                 <input type="file" id="fileInput" accept=".jpg,.jpeg,.png,.bmp" multiple hidden>
-                <button class="btn btn-primary" id="uploadBtn">
-                    选择图片
-                </button>
+                <button class="btn btn-primary" id="uploadBtn">选择图片</button>
             </div>
 
             <!-- 图片预览 -->
@@ -34,12 +32,8 @@
                 <h3>已选择 <span id="fileCount">0</span> 张图片</h3>
                 <div class="preview-grid" id="previewGrid"></div>
                 <div class="action-buttons">
-                    <button class="btn btn-primary" id="analyzeBtn">
-                        🔍 开始识别
-                    </button>
-                    <button class="btn btn-secondary" id="clearBtn">
-                        🗑️ 清空重选
-                    </button>
+                    <button class="btn btn-primary" id="analyzeBtn">🔍 开始识别</button>
+                    <button class="btn btn-secondary" id="clearBtn">🗑️ 清空重选</button>
                 </div>
             </div>
         </section>
@@ -54,6 +48,30 @@
         <section class="result-section" id="resultSection" style="display: none;">
             <h2>📊 识别结果</h2>
             <div class="result-grid" id="resultGrid"></div>
+        </section>
+
+        <!-- AI Agent对话面板 -->
+        <section class="agent-section" id="agentSection" style="display: none;">
+            <div class="agent-header">
+                <h2>🤖 AI 分析助手</h2>
+                <span class="agent-badge" id="llmBadge">规则模式</span>
+            </div>
+
+            <div class="agent-response" id="agentResponse">
+                <div class="agent-message" id="agentMessage">
+                    上传图片并点击识别后，AI助手将自动生成分析报告。
+                </div>
+            </div>
+
+            <div class="agent-chat">
+                <input
+                    type="text"
+                    id="chatInput"
+                    placeholder="向AI助手提问，例如：为什么判断为猫？"
+                >
+                <button class="btn btn-primary" id="sendBtn">发送</button>
+                <button class="btn btn-secondary" id="resetChatBtn">重置对话</button>
+            </div>
         </section>
 
         <!-- 示例图片 -->
