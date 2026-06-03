@@ -1,18 +1,27 @@
+import os
+
+import cv2
+import numpy as np
 import torch
 import torch.nn.functional as F
 from PIL import Image
 from torchvision import transforms
-import numpy as np
-import cv2
 
 
 class ModelHandler:
     """模型加载、推理、Grad-CAM一体化处理"""
 
     def __init__(self, model_path, device=None):
+        model_path = os.path.abspath(model_path)
+        if not os.path.isfile(model_path):
+            raise FileNotFoundError(
+                f'模型文件不存在: {model_path}\n'
+                f'请将 best_cnn_model.pth 放到项目根目录 models/ 下，'
+                f'或通过环境变量 MODEL_PATH 指定路径。'
+            )
+
         self.device = device or torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-        # 加载模型
         checkpoint = torch.load(model_path, map_location=self.device, weights_only=False)
 
         # 导入CNN模型（需要把cnn_model.py放到backend目录）

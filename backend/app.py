@@ -1,32 +1,38 @@
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-from PIL import Image
+import os
 import io
 import base64
-import numpy as np
+
 import cv2
+import numpy as np
+from flask import Flask, request, jsonify, send_from_directory
+from flask_cors import CORS
+from PIL import Image
+
 from model_handler import ModelHandler
 from agent import CatDogAgent
 
-app = Flask(__name__)
-CORS(app)  # 允许跨域请求
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(BASE_DIR)
+FRONTEND_DIR = os.path.join(PROJECT_ROOT, 'frontend')
+DEFAULT_MODEL_PATH = os.path.join(PROJECT_ROOT, 'models', 'best_cnn_model.pth')
 
-# 加载模型
-MODEL_PATH = '../models/best_cnn_model.pth'
-model_handler = ModelHandler(MODEL_PATH)
-
-import os
-os.environ['LLM_API_KEY'] = "完整Key"   # 你的完整Key，不要有空格和换行
-
-agent = CatDogAgent(
-    model_handler=model_handler,
-    llm_api_key=os.environ.get('LLM_API_KEY'),
-    llm_base_url="https://api.deepseek.com/v1/chat/completions"
+MODEL_PATH = os.environ.get('MODEL_PATH', DEFAULT_MODEL_PATH)
+LLM_API_KEY = os.environ.get('LLM_API_KEY', '').strip()
+LLM_BASE_URL = os.environ.get(
+    'LLM_BASE_URL',
+    'https://api.deepseek.com/v1/chat/completions'
 )
 
-key = os.environ.get('LLM_API_KEY')
-print(f"Key length: {len(key)}")
-print(f"Key characters: {[ord(c) for c in key if ord(c) > 127]}")
+app = Flask(__name__)
+CORS(app)
+
+model_handler = ModelHandler(MODEL_PATH)
+agent = CatDogAgent(
+    model_handler=model_handler,
+    llm_api_key=LLM_API_KEY or None,
+    llm_base_url=LLM_BASE_URL,
+)
+
 
 def image_to_base64(image_np):
     """将numpy图片转为base64字符串"""
@@ -37,7 +43,13 @@ def image_to_base64(image_np):
 @app.route('/api/health', methods=['GET'])
 def health_check():
     """健康检查接口"""
-    return jsonify({'status': 'ok', 'message': '猫狗分类服务运行中'})
+    return jsonify({
+        'status': 'ok',
+        'message': '猫狗分类服务运行中',
+        'llm_enabled': bool(LLM_API_KEY),
+        'model_loaded': True,
+        'model_path': MODEL_PATH,
+    })
 
 
 @app.route('/api/predict', methods=['POST'])
@@ -56,18 +68,14 @@ def predict():
         return jsonify({'error': '文件名为空'}), 400
 
     try:
-        # 读取图片
         image_bytes = file.read()
         image = Image.open(io.BytesIO(image_bytes)).convert('RGB')
 
-        # 预测
         result = model_handler.predict(image)
 
-        # 生成Grad-CAM
         gradcam_image = model_handler.generate_gradcam(image)
         gradcam_base64 = image_to_base64(gradcam_image)
 
-        # 原图转base64（用于前端显示）
         original_np = np.array(image.resize((224, 224)))
         original_base64 = image_to_base64(original_np)
 
@@ -102,6 +110,12 @@ def predict_batch():
             image = Image.open(io.BytesIO(image_bytes)).convert('RGB')
             result = model_handler.predict(image)
             result['filename'] = file.filename
+
+            gradcam_image = model_handler.generate_gradcam(image)
+            original_np = np.array(image.resize((224, 224)))
+            result['original_image'] = f'data:image/jpeg;base64,{image_to_base64(original_np)}'
+            result['gradcam_image'] = f'data:image/jpeg;base64,{image_to_base64(gradcam_image)}'
+
             results.append(result)
         except Exception as e:
             results.append({
@@ -119,7 +133,11 @@ def agent_analyze():
         return jsonify({'error': '未找到图片文件'}), 400
 
     file = request.files['image']
-    image = Image.open(io.BytesIO(file.read())).convert('RGB')
+
+    try:
+        image = Image.open(io.BytesIO(file.read())).convert('RGB')
+    except Exception as e:
+        return jsonify({'error': f'无法读取图片: {str(e)}'}), 400
 
     result = agent.analyze_image(image)
 
@@ -134,8 +152,8 @@ def agent_analyze():
 @app.route('/api/agent/chat', methods=['POST'])
 def agent_chat():
     """Agent对话接口"""
-    data = request.get_json()
-    user_message = data.get('message', '')
+    data = request.get_json(silent=True) or {}
+    user_message = data.get('message', '').strip()
 
     if not user_message:
         return jsonify({'error': '消息为空'}), 400
@@ -150,5 +168,21 @@ def agent_reset():
     agent.clear_history()
     return jsonify({'status': 'ok', 'message': '对话已重置'})
 
+
+@app.route('/')
+def serve_index():
+    """提供前端首页"""
+    return send_from_directory(FRONTEND_DIR, 'index.html')
+
+
+@app.route('/<path:filename>')
+def serve_frontend(filename):
+    """提供前端静态资源（CSS/JS/示例图片等）"""
+    return send_from_directory(FRONTEND_DIR, filename)
+
+
 if __name__ == '__main__':
+    mode = 'LLM增强' if LLM_API_KEY else '规则模式'
+    print(f'服务启动 | 模式: {mode} | 模型: {MODEL_PATH}')
+    print('请在浏览器打开: http://127.0.0.1:5000  （不要直接双击 index.html）')
     app.run(host='0.0.0.0', port=5000, debug=True)

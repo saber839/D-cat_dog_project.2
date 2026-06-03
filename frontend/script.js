@@ -1,5 +1,5 @@
 // ==================== 后端API配置 ====================
-const API_BASE_URL = 'http://localhost:5000/api';
+const API_BASE_URL = `${window.location.origin}/api`;
 
 // ==================== DOM元素 ====================
 const uploadArea = document.getElementById('uploadArea');
@@ -107,6 +107,25 @@ clearBtn.addEventListener('click', () => {
 });
 
 // ==================== Agent分析 ====================
+async function predictSingle(file) {
+    const formData = new FormData();
+    formData.append('image', file);
+
+    const response = await fetch(`${API_BASE_URL}/predict`, {
+        method: 'POST',
+        body: formData,
+    });
+
+    if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.error || `服务器错误: ${response.status}`);
+    }
+
+    const data = await response.json();
+    data.filename = file.name;
+    return data;
+}
+
 async function analyzeWithAgent(file) {
     const formData = new FormData();
     formData.append('image', file);
@@ -118,16 +137,15 @@ async function analyzeWithAgent(file) {
         });
 
         if (!response.ok) {
-            throw new Error(`服务器错误: ${response.status}`);
+            const err = await response.json().catch(() => ({}));
+            throw new Error(err.error || `服务器错误: ${response.status}`);
         }
 
         const data = await response.json();
 
-        // 显示Agent面板和分析报告
         agentSection.style.display = 'block';
         agentMessage.textContent = data.agent_response;
 
-        // 同时显示预测结果卡片
         displayResults([{
             prediction: data.prediction,
             confidence: data.confidence,
@@ -136,13 +154,34 @@ async function analyzeWithAgent(file) {
             probabilities: data.probabilities
         }]);
 
-        // 滚动到Agent面板
         agentSection.scrollIntoView({ behavior: 'smooth' });
 
     } catch (error) {
         console.error('Agent分析失败:', error);
         agentSection.style.display = 'block';
-        agentMessage.textContent = '分析失败，请检查后端服务是否启动。';
+        agentMessage.textContent = `分析失败：${error.message}`;
+    }
+}
+
+async function analyzeMultiple(files) {
+    try {
+        const results = await Promise.all(
+            files.map(file => predictSingle(file).catch(error => ({
+                filename: file.name,
+                error: error.message,
+            })))
+        );
+
+        displayResults(results);
+        agentSection.style.display = 'block';
+        agentMessage.textContent =
+            `已识别 ${results.length} 张图片。点击结果卡片可查看 Grad-CAM 详情。` +
+            ' 如需 AI 文字分析，请单张上传后识别。';
+        resultSection.scrollIntoView({ behavior: 'smooth' });
+
+    } catch (error) {
+        console.error('批量识别失败:', error);
+        alert(`批量识别失败：${error.message}`);
     }
 }
 
@@ -155,7 +194,11 @@ analyzeBtn.addEventListener('click', async () => {
     loadingSection.style.display = 'block';
     resultSection.style.display = 'none';
 
-    await analyzeWithAgent(selectedFiles[0]);
+    if (selectedFiles.length === 1) {
+        await analyzeWithAgent(selectedFiles[0]);
+    } else {
+        await analyzeMultiple(selectedFiles);
+    }
 
     loadingSection.style.display = 'none';
 });
@@ -238,21 +281,6 @@ async function resetChat() {
     }
 }
 
-async function checkAgentStatus() {
-    try {
-        const response = await fetch(`${API_BASE_URL}/health`);
-        const data = await response.json();
-
-        if (data.llm_enabled) {
-            llmBadge.textContent = 'LLM增强';
-            llmBadge.style.background = '#e6ffe6';
-            llmBadge.style.color = '#28a745';
-        }
-    } catch (error) {
-        console.warn('Agent状态检查失败');
-    }
-}
-
 sendBtn.addEventListener('click', sendChatMessage);
 chatInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') sendChatMessage();
@@ -317,17 +345,68 @@ detailModal.addEventListener('click', (e) => {
     }
 });
 
+// ==================== 示例图片 ====================
+async function loadDemoImage(src, label) {
+    if (window.location.protocol === 'file:') {
+        alert(
+            '示例图片无法加载：请通过 Flask 服务访问页面。\n\n' +
+            '1. 运行 backend/app.py\n' +
+            '2. 浏览器打开 http://127.0.0.1:5000\n\n' +
+            '不要直接双击打开 index.html 文件。'
+        );
+        return;
+    }
+
+    try {
+        const response = await fetch(src);
+        if (!response.ok) {
+            throw new Error(`找不到示例图片 ${src}，请将图片放到 frontend/assets/ 目录`);
+        }
+
+        const blob = await response.blob();
+        const file = new File([blob], src.split('/').pop(), { type: blob.type || 'image/jpeg' });
+
+        selectedFiles = [file];
+        renderPreview();
+        previewSection.scrollIntoView({ behavior: 'smooth' });
+
+    } catch (error) {
+        console.error('加载示例图片失败:', error);
+        alert(`${label}加载失败：${error.message}`);
+    }
+}
+
+document.querySelectorAll('.demo-card').forEach(card => {
+    card.addEventListener('click', () => {
+        const src = card.dataset.src;
+        const label = card.querySelector('p')?.textContent || '示例图片';
+        loadDemoImage(src, label);
+    });
+});
+
 // ==================== 健康检查 ====================
 async function checkHealth() {
     try {
         const response = await fetch(`${API_BASE_URL}/health`);
         const data = await response.json();
         console.log('后端服务状态:', data.message);
+
+        if (data.llm_enabled) {
+            llmBadge.textContent = 'LLM增强';
+            llmBadge.style.background = '#e6ffe6';
+            llmBadge.style.color = '#28a745';
+        } else {
+            llmBadge.textContent = '规则模式';
+            llmBadge.style.background = '#f0e6ff';
+            llmBadge.style.color = '#764ba2';
+        }
     } catch {
         console.warn('后端服务未启动，请运行 backend/app.py');
+        llmBadge.textContent = '服务离线';
+        llmBadge.style.background = '#ffe6e6';
+        llmBadge.style.color = '#dc3545';
     }
 }
 
 // ==================== 页面初始化 ====================
 checkHealth();
-checkAgentStatus();

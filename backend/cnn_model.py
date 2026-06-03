@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torchsummary import summary
 
 
 class ConvBlock(nn.Module):
@@ -158,10 +157,13 @@ def test_model():
     print(model)
     print("=" * 60)
 
-    # 使用torchsummary查看每层参数
+    # 使用 torchsummary 查看每层参数（仅测试脚本需要，可选依赖）
     try:
+        from torchsummary import summary
         summary(model, input_size=(3, 224, 224), device=str(device))
-    except:
+    except ImportError:
+        print('提示: 安装 torchsummary 可查看更详细的层信息 (pip install torchsummary)')
+    except Exception:
         pass
 
     # 统计参数量
